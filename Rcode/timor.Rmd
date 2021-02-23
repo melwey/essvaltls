@@ -1,0 +1,290 @@
+---
+<<<<<<< HEAD
+title: "Mapping and valuing ecosystem services in Timor Leste - preliminary results"
+author: "Mélanie Weynants, Philipp Schägner, Claudia Capitani"
+date: "9 February 2021"
+header-includes:
+  - \usepackage[section]{placeins}
+output:
+  bookdown::pdf_document2: default
+  bookdown::html_document2: default
+always_allow_html: true
+---
+
+```{r, setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE, results = 'hide')
+library(tidyverse)
+library(sf)
+
+col_pa <- c("FALSE" = "#90c14f", "TRUE" = "#70b6d1")
+eco_cols <- c('coral' = '#e65025', 'seagrass' = '#36aa49', 'mangrove' = '#720f11', 'modSeagrass' = '#36aa49')
+biopama_cols = c("#90c14f", "#41ad53", "#61ab79", "#71a6a1","#91b090", 
+                 "#a7d1e5","#cf785e", "#a25b28", "#70b6d1", "#679b95",
+                 "#36aa49", "#90c04e", "#e65025", "#70b6d1","#cc775d" )
+
+```
+
+# Mapping biomes
+
+We map biomes of Timor Leste to value its ecosystem services.
+
+Table \@ref(tab:ESval) presents the biomes documented in the Ecoystem Services Valuation Database (ESVD)  with their associated monetary values. These values are calculated from a meta analysis of publications worldwide (<https://www.es-partnership.org/esvd/>).
+
+```{r, ESval, results='asis'}
+esvd <- read_csv("../../data/ESVD_summary_values.csv") %>%
+  pivot_longer(-X1, names_to = "Biome") %>% 
+  pivot_wider(names_from=X1, values_from=value)  %>%
+  rename(`Value (2020 USD/ha)` = Sum)
+knitr::kable(esvd %>% dplyr::select(Biome, `Value (2020 USD/ha)`), caption="Global values of ecosystem services from the Ecoystem Services Valuation Database (ESVD)")
+```
+
+We combine different sources of data to create the map of biomes, as shown at Figure \@ref(fig:workflow).
+
+For the land part, we use the Copernicus Hotspot land cover map for year 2016. This uses a standard legend. We combine it with a national land cover from 2001 from the National Ministry of Agriculture to inform the correspondance between land cover and biomes. We also take advantage of local community mapping exercises provided by Conservation International to refine the classification.
+
+For the coastal and marine biomes, we use global datasets for corals and mangroves and local datasets for seagrass beds.
+
+We finally overlayed the current protected area network for the subsequent analyses.
+
+```{r, workflow, fig.cap="Workflow", results='asis'}
+DiagrammeR::grViz("digraph workflow {
+
+graph [layout = dot, rankdir = TB, fontsize=10]
+
+# define the global styles of the nodes. We can override these in box if we wish
+node [shape = parallelogram, style = filled, fontname=Arial]
+
+timorCH [label = 'Copernicus Hotspot \n land cover 2016', fillcolor = LimeGreen]
+timorLC [label = 'National \n land cover 2001', fillcolor = Orange]
+union0 [label =  'Union', shape = rectangle, fillcolor = Gold]
+seagr1 [label = 'Seagrass_national_coast_V1', fillcolor = Orange]
+seagr2 [label = 'Seagrass_national_coast_V2', fillcolor = Orange]
+union1 [label =  'Merge', shape = rectangle, fillcolor = Gold]
+coral [label = 'WCMC008_CoralReef2018_Py_v4', fillcolor = DarkTurquoise]
+union2 [label =  'Union', shape = rectangle, fillcolor = Gold]
+mangrove [label = 'GMW2016_v2', fillcolor = DarkTurquoise]
+union3 [label =  'Union', shape = rectangle, fillcolor = Gold]
+union4 [label =  'Union', shape = rectangle, fillcolor = Gold]
+eez [label = 'EEZ', fillcolor = DeepSkyBlue]
+clean [label = 'Difference', shape = rectangle, fillcolor = Gold]
+merge [label = 'Merge \n Snap to grid \n Fix geometries', shape = rectangle, fillcolor = Gold]
+biomes [label = 'Final biomes', shape = oval, fillcolor = Gold]
+datasource1 [label = 'Conservation \n International', shape = folder, fillcolor = Orange]
+datasource2 [label = 'UNEP-WCMC', shape = folder, fillcolor = DarkTurquoise]
+datasource3 [label = 'Copernicus Global \n Land Service', shape = folder, fillcolor = LimeGreen]
+
+# edge definitions with the node IDs
+
+{timorCH timorLC} -> union0
+{seagr1 seagr2} -> union1
+{coral union1} -> union2
+{mangrove union2} -> union3
+{union3 union0} -> union4
+{eez union0} -> clean
+{clean union4} -> merge
+merge -> biomes
+
+subgraph clusterlegend {label = 'Data sources'; clusterrank = local ; rank = sink; datasource1 ; datasource2 ; datasource3; fontname=Arial}
+}
+")
+```
+
+
+Figure \@ref(fig:biomesMap) shows the resulting map of biomes for Timor Leste.
+
+
+```{r, biomesMap, fig.cap="Biomes and protected areas of Timor Leste", results='asis'}
+knitr::include_graphics("../fig/TLS_biomes.png")
+```
+
+
+# Biomes coverage and protection
+
+We calculated coverage statistics of the mapped biomes, making the distinction between protected and unprotected areas.
+
+```{r, biomesCoverage}
+tmp <- read_csv("../output/timorBiomesUwdpa.csv") %>%
+  dplyr::filter(!is.na(BIOME)) %>%
+  tidyr::replace_na(list(PA_DEF = 0)) 
+# add info land or sea
+biomesUwdpa <- tmp %>%
+  # split land and sea (Open sea/ocean; coral; seagrass [grep seagrass in layer])
+  mutate(suprabiome = dplyr::if_else(BIOME %in% c("Open sea/ocean", "Coral reef") | stringr::str_detect(tmp$layer, "eagrass"), "Marine", "Terrestrial"))
+
+biomesCover <- biomesUwdpa %>%
+  group_by(BIOME, WDPAID, WDPA_PID, PA_DEF, suprabiome) %>%
+  summarise(area_sqkm = sum(area_sqm * 1e-6, na.rm = TRUE)) %>%
+  left_join(tmp %>% select(-layer, -class_name, -LU_CLASS, -area_sqm) %>% filter(!is.na(WDPAID)) %>% distinct()) %>%
+  left_join(esvd %>% dplyr::select(Biome, `Value (2020 USD/ha)`), by = c("BIOME" = "Biome")) %>%
+  mutate(value = `Value (2020 USD/ha)` * area_sqkm *1e2) %>%
+  dplyr::select(-`Value (2020 USD/ha)`) 
+rm(tmp)
+
+summaryCover <- biomesCover %>% 
+         group_by(suprabiome, PA_DEF) %>%
+         summarise (S = sum(area_sqkm, na.rm = TRUE), V = sum(value, na.rm = TRUE))
+
+summaryBiomesCover <- biomesCover %>% 
+         group_by(PA_DEF, BIOME) %>%
+         summarise(
+           area_sqkm = sum(area_sqkm, na.rm = TRUE),
+           value = sum(value, na.rm = TRUE)
+           )
+
+```
+
+Figure \@ref(fig:protectPie) shows that only `r summaryCover %>% ungroup() %>% dplyr::filter(suprabiome=="Marine" & PA_DEF==1) %>% dplyr::select(label)` of Timor marine area is currently protected, while `r summaryCover %>% ungroup() %>% dplyr::filter(suprabiome=="Terrestrial" & PA_DEF==1) %>% dplyr::select(label)` of the country's land is under protection, according to the data available in the WDPA.
+
+```{r, protectPie, fig.cap="Terrestrial and marine protection in TimorLeste"}
+# Overall protection : area
+# pie chart
+# split land and sea (Open sea/ocean; coral; seagrass [grep seagrass in layer])
+ggplot(data = summaryCover %>%
+         mutate(label = 
+                  ifelse(
+                    PA_DEF, 
+                    paste0(round(S/sum(S) *1e2, digits = 1), " %"), 
+                    "") 
+                ) %>%
+         mutate(x=2) %>%
+         mutate(ylabel = 0),
+       aes(x=x, y=S, fill=as.logical(PA_DEF))) +
+  geom_bar(stat="identity", width=1, position = "fill") +
+  scale_fill_manual(values =  col_pa) + 
+  coord_polar("y", start=0) + 
+  xlim(c(0,2.5)) +
+  labs(fill = "Area protected", y = "", x="") +
+  theme_void() +
+  theme(legend.position = "bottom") +
+  facet_grid(cols = vars(suprabiome)) + 
+  geom_text(x = .5, aes(y = S/sum(S), label = label))
+
+```
+
+Figures \@ref(fig:protectBar) and \@ref(fig:protectBarFill) show the coverage of the various biomes in Timor Leste and the proportion of each biome that is protected.
+
+```{r, protectBar, fig.cap="Biomes coverage and protection - absolute values"}
+# Biome protection : area absolute
+area_total <- sum(biomesCover$area_sqkm, na.rm=TRUE)
+ggplot(data = summaryBiomesCover, 
+       aes(x = BIOME, 
+           y = area_sqkm, 
+           fill = as.logical(PA_DEF), 
+           label = paste0(signif(area_sqkm/area_total*1e2, digits = 2), " %")
+       )) + 
+  geom_bar(stat="identity") +
+  # geom_label() +
+  geom_label(aes(y = 60000 - PA_DEF*50000, colour = as.logical(PA_DEF) ), fill = "white")+
+  scale_x_discrete(limits = biomesCover %>% group_by(BIOME) %>% summarise(S = sum(area_sqkm, na.rm = TRUE)) %>% arrange(S) %>% dplyr::select(BIOME) %>% unlist()) +
+  scale_y_continuous(name = "Area (sqkm)") +
+  scale_fill_manual(values = col_pa, labels = c('no','yes')) +
+  scale_colour_manual(values = col_pa, labels = c('not protected','protected')) +
+  labs(fill = "Protected", colour = "% of total area") +
+  coord_flip()
+```
+
+
+```{r, protectBarFill, fig.cap="Biomes coverage and protection - relative values"}
+# Biome protection : area proportion
+ggplot(data = biomesCover, aes(x = BIOME, y = area_sqkm, fill = as.logical(PA_DEF))) + 
+  geom_bar(stat="identity", position = "fill") +
+  scale_x_discrete(limits = biomesCover %>% group_by(BIOME) %>% summarise(S = sum(area_sqkm, na.rm = TRUE)) %>% arrange(S) %>% dplyr::select(BIOME) %>% unlist()) +
+  scale_y_continuous(name = "Proportion of area protected") +
+  scale_fill_manual(values = col_pa, labels = c('no','yes')) +
+  labs(fill = "Protected") +
+  coord_flip()
+```
+
+Although Coastal systems, Coral reefs, Inland wetlands and Mangroves cover very little area, these valuable biomes have a relatively high level of protection, with respectively `r paste(summaryBiomesCover %>% group_by(BIOME) %>% mutate(pc = round(area_sqkm / sum(area_sqkm, na.rm=TRUE)*1e2, digits=1) ) %>% ungroup() %>% filter(PA_DEF == 1 & BIOME %in% c("Inland wetlands", "Coastal systems", "Coral reefs", "Mangroves")) %>% dplyr::select(pc) %>% unlist(), collapse = ", ")`%, especially Mangroves. The fact that these protected areas are already designated is a good basis to enforce effective protection of the valuable ecosystem services supplied by these biomes. 
+
+On the other hand, only `r summaryBiomesCover %>% group_by(BIOME) %>% mutate(pc = round(area_sqkm / sum(area_sqkm, na.rm=TRUE)*1e2, digits=1) ) %>% ungroup() %>% filter(PA_DEF == 1 & BIOME %in% c("Tropical forests")) %>% dplyr::select(pc)`% of the Tropical forests are under some sort of protection. This could be increased to at least 30% to insure the maintainance of the highly valuable ecosystem services they deliver.
+
+We can further look at the value of these ecosystem services in the next section.
+
+# Ecosystem services value
+
+We assigned a monetary value to the mapped biomes, following the global estimates given in Table \@ref(tab:ESval).
+
+Figure \@ref(fig:valuePie) shows the value of ecosystem services currently protected in Timor Leste.
+
+```{r, valuePie, fig.cap="Terrestrial and marine ecosystem services value protected in TimorLeste"}
+# Overall ecosystem protection : value
+# pie chart
+
+# split land and sea (Open sea/ocean; coral; seagrass [grep seagrass in layer])
+ggplot(data = summaryCover %>% 
+         mutate(x=2) %>%
+         mutate(label = ifelse(PA_DEF, paste0(round(V/sum(V, rm.na=TRUE) *1e2, digits = 1), " %"), "")) %>%
+         mutate(ylabel = 0),
+       aes(x=x, y=V, fill=as.logical(PA_DEF))) +
+  geom_bar(stat="identity", width=1, position = "fill") +
+  scale_fill_manual(values =  col_pa) + 
+  coord_polar("y", start=0) + 
+  xlim(c(0,2.5)) +
+  labs(fill = "ES value protected", y = "", x="") +
+  theme_void() +
+  theme(legend.position = "bottom") +
+  facet_grid(cols = vars(suprabiome)) + 
+  geom_text(x = .5, aes(y = V/sum(V), label = label))
+
+```
+
+In fig. \@ref(fig:valueBar), we see the distribution of the biomes' ecosystem services value. Because the value per hectare of Tropical forests is about three times more than that of the Open ocean/sea, the total value of Tropical forests is a=larger in proportion than its coverage.
+
+
+```{r, valueBar, fig.cap="Ecosystem services value in Timor Leste"}
+# Biome protection : value absolute
+value_total <- sum(biomesCover$value, na.rm=TRUE)
+ggplot(data = summaryBiomesCover, 
+       aes(x = BIOME, 
+           y = value, 
+           fill = as.logical(PA_DEF), 
+           label = paste0(signif(value/value_total*1e2, digits = 2), " %")
+       )) + 
+  geom_bar(stat="identity") +
+  geom_label(aes(y = 2e11 - PA_DEF*1.5e11, colour = as.logical(PA_DEF) ), fill = "white")+
+  scale_x_discrete(limits = biomesCover %>% group_by(BIOME) %>% summarise(V = sum(value, na.rm = TRUE)) %>% arrange(V) %>% dplyr::select(BIOME) %>% unlist()) +
+  scale_y_continuous(name = "Ecosystem services value (2020 USD)") +
+  scale_fill_manual(values = col_pa, labels = c('no','yes')) +
+  scale_colour_manual(values = col_pa, labels = c('not protected','protected')) +
+  labs(fill = "Protected", colour = "% of total value") +
+  coord_flip()
+```
+
+# Ecosystem services value maps
+
+=======
+title: "Mapping and valuing ecosystem services in Timor Leste"
+author: "Mélanie Weynants, Philipp Schägner, Claudia Capitani"
+date: "2/1/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Mapping biomes
+
+We map biomes of Timor Leste for the valuation of ecosystem services.
+
+The biomes documented in the Ecoystem Services Valuation Database are presented in the table below with their associated monetary values. These values are calculated from a meta analysis of publications worldwide.
+
+We combined different sources of data to create the map of biomes.
+
+For the land part, we used the Copernicus Hotspot land cover map for year 2016. This uses a standard legend. We combined it with a national land cover from 2001 from the National Ministry of Agriculture to inform the translation from land cover to biomes. We also took advantage of local community mapping exercises to refine and 
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+>>>>>>> 5aff04acb1510cba240b29c2337913dcdf9dea77
