@@ -8,11 +8,9 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-<<<<<<< HEAD
+
 knitr::opts_chunk$set(echo = FALSE, message=FALSE, warning=FALSE, results='hide')
-=======
-knitr::opts_chunk$set(echo = TRUE)
->>>>>>> 5aff04acb1510cba240b29c2337913dcdf9dea77
+
 library(dplyr)
 library(ggplot2)
 ```
@@ -22,7 +20,6 @@ library(ggplot2)
 From global ecosystem datasets, we compiled a map of biomes.
 Here is the map for Timor Leste, with the current protected area network.
 
-<<<<<<< HEAD
 ![Map of biomes of Timor Leste](../fig/TLS_global_biomes.png)
 
 The table below gives the coverage statistics for those biomes, with the monetary value according to two studies (in 2011 USD).
@@ -35,39 +32,21 @@ total <- df_TLS_es %>%
   summarise(Area_total = sum(Area),
             USD_1997 = sum(Costanza_1997, na.rm = TRUE),
             USD_2011 = sum(Costanza_2011, na.rm = TRUE))
-=======
-![Map of biomes of Timor Leste](../fig/TLS_biomes.png)
-
-The table below gives the coverage statistics for those biomes, with the monetary value according to two studies (in 2011 USD).
-```{r TLS_es}
-load("../tmp_output/df_TLS_es.rdata")
-print(df_TLS_es %>% select(-USD_ha_1997, -USD_ha_2011))
-total <- df_TLS_es %>%
-  ungroup() %>%
-  summarise(Area_total = sum(Area),
-            USD_1997 = sum(Costanza_1997, na.rm = TRUE)/Area_total,
-            USD_2011 = sum(Costanza_2011, na.rm = TRUE)/Area_total)
->>>>>>> 5aff04acb1510cba240b29c2337913dcdf9dea77
 ```
 
 The total value of ecosystem services at national scale are `r total %>% select(USD_1997)` 2007 USD (Costanza, 1997) and `r total %>% select(USD_2011)` 2007 USD (Costanza, 2011).
 
 ## Protected area level
 
-<<<<<<< HEAD
 The current protected areas network (WDPA September 2020) protects part of the ecosystem services provided by the ecosystems in Timor Leste.
-=======
-The current protected areas network (WDPA September 2020) protects partof the ecosystem services provided by the ecosystems in Timor Leste.
->>>>>>> 5aff04acb1510cba240b29c2337913dcdf9dea77
+
 The figure below shows the distribution of biomes in the protected areas. The width of the bar is proportional to the value of ecosystem services per square kilometer (Costanza, 2011).
 
 ```{r plot_pa, echo=FALSE}
 load("../df_TLS_pa_es_plot.rdata")
-<<<<<<< HEAD
-biomes_legend <- readr::read_delim("../../essvalpa/legend/biomes_legend.txt", delim = ",",col_names = FALSE , skip = 2)
-=======
+
 biomes_legend <- readr::read_delim("../legend/biomes_legend.txt", delim = ",",col_names = FALSE , skip = 2)
->>>>>>> 5aff04acb1510cba240b29c2337913dcdf9dea77
+
 names(biomes_legend) <- c("biome_code", "R", "G", "B", "alpha", "label")
 biomes_cols <- rgb(red = biomes_legend$R/255, green = biomes_legend$G/255, blue = biomes_legend$B/255)
 names(biomes_cols) <- biomes_legend$label
