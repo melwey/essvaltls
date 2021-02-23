@@ -1,5 +1,4 @@
 ---
-<<<<<<< HEAD
 title: "Mapping and valuing ecosystem services in Timor Leste - preliminary results"
 author: "Mélanie Weynants, Philipp Schägner, Claudia Capitani"
 date: "9 February 2021"
@@ -253,38 +252,3 @@ ggplot(data = summaryBiomesCover,
 
 # Ecosystem services value maps
 
-=======
-title: "Mapping and valuing ecosystem services in Timor Leste"
-author: "Mélanie Weynants, Philipp Schägner, Claudia Capitani"
-date: "2/1/2021"
-output: html_document
----
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
-## Mapping biomes
-
-We map biomes of Timor Leste for the valuation of ecosystem services.
-
-The biomes documented in the Ecoystem Services Valuation Database are presented in the table below with their associated monetary values. These values are calculated from a meta analysis of publications worldwide.
-
-We combined different sources of data to create the map of biomes.
-
-For the land part, we used the Copernicus Hotspot land cover map for year 2016. This uses a standard legend. We combined it with a national land cover from 2001 from the National Ministry of Agriculture to inform the translation from land cover to biomes. We also took advantage of local community mapping exercises to refine and 
-
-```{r cars}
-summary(cars)
-```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
->>>>>>> 5aff04acb1510cba240b29c2337913dcdf9dea77
