@@ -121,7 +121,16 @@ rm(tmp)
 
 summaryCover <- biomesCover %>% 
          group_by(suprabiome, PA_DEF) %>%
-         summarise (S = sum(area_sqkm, na.rm = TRUE), V = sum(value, na.rm = TRUE))
+         summarise (
+           S = sum(area_sqkm, na.rm = TRUE), 
+           V = sum(value, na.rm = TRUE)
+           ) %>%
+         mutate(label = 
+                  ifelse(
+                    PA_DEF, 
+                    paste0(round(S/sum(S) *1e2, digits = 1), " %"), 
+                    "") 
+                )
 
 summaryBiomesCover <- biomesCover %>% 
          group_by(PA_DEF, BIOME) %>%
@@ -139,12 +148,6 @@ Figure \@ref(fig:protectPie) shows that only `r summaryCover %>% ungroup() %>% d
 # pie chart
 # split land and sea (Open sea/ocean; coral; seagrass [grep seagrass in layer])
 ggplot(data = summaryCover %>%
-         mutate(label = 
-                  ifelse(
-                    PA_DEF, 
-                    paste0(round(S/sum(S) *1e2, digits = 1), " %"), 
-                    "") 
-                ) %>%
          mutate(x=2) %>%
          mutate(ylabel = 0),
        aes(x=x, y=S, fill=as.logical(PA_DEF))) +
@@ -159,6 +162,7 @@ ggplot(data = summaryCover %>%
   geom_text(x = .5, aes(y = S/sum(S), label = label))
 
 ```
+
 
 Figures \@ref(fig:protectBar) and \@ref(fig:protectBarFill) show the coverage of the various biomes in Timor Leste and the proportion of each biome that is protected.
 
