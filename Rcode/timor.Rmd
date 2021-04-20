@@ -1,19 +1,22 @@
 ---
 title: "Mapping and valuing ecosystem services in Timor Leste - preliminary results"
 author: "Mélanie Weynants, Philipp Schägner, Claudia Capitani"
-date: "9 February 2021"
+date: "20 April 2021"
 header-includes:
   - \usepackage[section]{placeins}
 output:
-  bookdown::pdf_document2: default
+  bookdown::word_document2: default
   bookdown::html_document2: default
+  bookdown::pdf_document2: default
 always_allow_html: true
 ---
 
 ```{r, setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE, results = 'hide')
+setwd("/Users/mela/Documents/JRC/BIOPAMA/ESS/essvaltls/Rcode")
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE, results = 'hide',fig.width=12)
 library(tidyverse)
 library(sf)
+
 
 col_pa <- c("FALSE" = "#90c14f", "TRUE" = "#70b6d1")
 eco_cols <- c('coral' = '#e65025', 'seagrass' = '#36aa49', 'mangrove' = '#720f11', 'modSeagrass' = '#36aa49')
@@ -46,12 +49,13 @@ For the coastal and marine biomes, we use global datasets for corals and mangrov
 We finally overlayed the current protected area network for the subsequent analyses.
 
 ```{r, workflow, fig.cap="Workflow", results='asis'}
-DiagrammeR::grViz("digraph workflow {
+DiagrammeR::grViz(
+diagram = "digraph workflow {
 
-graph [layout = dot, rankdir = TB, fontsize=10]
+graph [layout = dot, rankdir = TB]
 
 # define the global styles of the nodes. We can override these in box if we wish
-node [shape = parallelogram, style = filled, fontname=Arial]
+node [shape = parallelogram, style = filled, fontname = Helvetica, fontsize=12]
 
 timorCH [label = 'Copernicus Hotspot \n land cover 2016', fillcolor = LimeGreen]
 timorLC [label = 'National \n land cover 2001', fillcolor = Orange]
@@ -84,8 +88,7 @@ datasource3 [label = 'Copernicus Global \n Land Service', shape = folder, fillco
 merge -> biomes
 
 subgraph clusterlegend {label = 'Data sources'; clusterrank = local ; rank = sink; datasource1 ; datasource2 ; datasource3; fontname=Arial}
-}
-")
+}")
 ```
 
 
@@ -97,9 +100,9 @@ knitr::include_graphics("../fig/TLS_biomes.png")
 ```
 
 
-# Biomes coverage and protection
+# Overall coverage and value protection
 
-We calculated coverage statistics of the mapped biomes, making the distinction between protected and unprotected areas.
+We calculated coverage statistics of the mapped biomes, making the distinction between protected and unprotected areas. 
 
 ```{r, biomesCoverage}
 tmp <- read_csv("../output/timorBiomesUwdpa.csv") %>%
@@ -108,22 +111,49 @@ tmp <- read_csv("../output/timorBiomesUwdpa.csv") %>%
 # add info land or sea
 biomesUwdpa <- tmp %>%
   # split land and sea (Open sea/ocean; coral; seagrass [grep seagrass in layer])
-  mutate(suprabiome = dplyr::if_else(BIOME %in% c("Open sea/ocean", "Coral reef") | stringr::str_detect(tmp$layer, "eagrass"), "Marine", "Terrestrial"))
+  mutate(suprabiome = dplyr::if_else(BIOME %in% c("Open sea/ocean", "Coral reef") | stringr::str_detect(tmp$layer, "Seagrass"), "Marine", "Terrestrial"))
 
-biomesCover <- biomesUwdpa %>%
+# biomesCover <- biomesUwdpa %>%
+#   group_by(BIOME, WDPAID, WDPA_PID, PA_DEF, suprabiome) %>%
+#   summarise(area_sqkm = sum(area_sqm * 1e-6, na.rm = TRUE)) %>%
+#   left_join(tmp %>% select(-layer, -class_name, -LU_CLASS, -area_sqm) %>% filter(!is.na(WDPAID)) %>% distinct()) %>%
+#   left_join(esvd %>% dplyr::select(Biome, `Value (2020 USD/ha)`), by = c("BIOME" = "Biome")) %>%
+#   mutate(value = `Value (2020 USD/ha)` * area_sqkm *1e2) %>%
+#   dplyr::select(-`Value (2020 USD/ha)`) 
+
+## compute area and value by biome, PA
+biomesCoverValue <- biomesUwdpa %>%
+  # compute area by biome and PA
   group_by(BIOME, WDPAID, WDPA_PID, PA_DEF, suprabiome) %>%
   summarise(area_sqkm = sum(area_sqm * 1e-6, na.rm = TRUE)) %>%
+  # add again info related to individual PAs
   left_join(tmp %>% select(-layer, -class_name, -LU_CLASS, -area_sqm) %>% filter(!is.na(WDPAID)) %>% distinct()) %>%
-  left_join(esvd %>% dplyr::select(Biome, `Value (2020 USD/ha)`), by = c("BIOME" = "Biome")) %>%
-  mutate(value = `Value (2020 USD/ha)` * area_sqkm *1e2) %>%
-  dplyr::select(-`Value (2020 USD/ha)`) 
+  # add ES value/ha
+  left_join(esvd , by = c("BIOME" = "Biome")) %>%
+  # compute value by multiplying by ha
+  mutate(across(Food : `Value (2020 USD/ha)`, ~.x * area_sqkm *1e2)) %>%
+  rename(`Value (2020 USD)` = `Value (2020 USD/ha)`) %>%
+  # group ES into main types 
+  # prepare for rowwise computations
+  ungroup() %>%
+  rowwise() %>%
+  # replace NA by 0
+  tidyr::replace_na(as.list(rep(0, length(esvd))) %>% set_names(names(esvd))) %>%
+  # Provisioning services
+  mutate(Provisioning = sum(c_across(Food : `Ornamental resources`))) %>%
+  # Regulating services
+  mutate(Regulating = sum(c_across(`Air quality regulation` : `Maintenance of genetic diversity`) ) ) %>%
+  # Cultural services
+  mutate(Cultural = sum(c_across(`Aesthetic information` :	`Existence and bequest values`))) %>% 
+  ungroup()
 rm(tmp)
 
-summaryCover <- biomesCover %>% 
+## summarise by suprabiome and PA_DEF
+summarySuprabiomes <- biomesCoverValue %>% 
          group_by(suprabiome, PA_DEF) %>%
          summarise (
            S = sum(area_sqkm, na.rm = TRUE), 
-           V = sum(value, na.rm = TRUE)
+           V = sum(`Value (2020 USD)`, na.rm = TRUE)
            ) %>%
          mutate(label = 
                   ifelse(
@@ -131,23 +161,26 @@ summaryCover <- biomesCover %>%
                     paste0(round(S/sum(S) *1e2, digits = 1), " %"), 
                     "") 
                 )
-
-summaryBiomesCover <- biomesCover %>% 
+## summarise by biome and PA_DEF
+summaryBiomes <- biomesCoverValue %>% 
          group_by(PA_DEF, BIOME) %>%
          summarise(
            area_sqkm = sum(area_sqkm, na.rm = TRUE),
-           value = sum(value, na.rm = TRUE)
+           across(Food : `Value (2020 USD)`, sum, na.rm = TRUE)
            )
 
 ```
 
-Figure \@ref(fig:protectPie) shows that only `r summaryCover %>% ungroup() %>% dplyr::filter(suprabiome=="Marine" & PA_DEF==1) %>% dplyr::select(label)` of Timor marine area is currently protected, while `r summaryCover %>% ungroup() %>% dplyr::filter(suprabiome=="Terrestrial" & PA_DEF==1) %>% dplyr::select(label)` of the country's land is under protection, according to the data available in the WDPA.
+We also assigned a monetary value to the mapped biomes, following the global estimates given in Table \@ref(tab:ESval).
+
+Figure \@ref(fig:protectPie) shows that only `r summarySuprabiomes %>% ungroup() %>% dplyr::filter(suprabiome=="Marine" & PA_DEF==1) %>% dplyr::select(label)` of Timor marine area is currently protected, while `r summarySuprabiomes %>% ungroup() %>% dplyr::filter(suprabiome=="Terrestrial" & PA_DEF==1) %>% dplyr::select(label)` of the country's land is under protection, according to the data available in the WDPA.
+
 
 ```{r, protectPie, fig.cap="Terrestrial and marine protection in TimorLeste"}
 # Overall protection : area
 # pie chart
 # split land and sea (Open sea/ocean; coral; seagrass [grep seagrass in layer])
-ggplot(data = summaryCover %>%
+ggplot(data = summarySuprabiomes %>%
          mutate(x=2) %>%
          mutate(ylabel = 0),
        aes(x=x, y=S, fill=as.logical(PA_DEF))) +
@@ -156,7 +189,7 @@ ggplot(data = summaryCover %>%
   coord_polar("y", start=0) + 
   xlim(c(0,2.5)) +
   labs(fill = "Area protected", y = "", x="") +
-  theme_void() +
+  theme_void() + #base_family = "Fira Sans"
   theme(legend.position = "bottom") +
   facet_grid(cols = vars(suprabiome)) + 
   geom_text(x = .5, aes(y = S/sum(S), label = label))
@@ -164,58 +197,14 @@ ggplot(data = summaryCover %>%
 ```
 
 
-Figures \@ref(fig:protectBar) and \@ref(fig:protectBarFill) show the coverage of the various biomes in Timor Leste and the proportion of each biome that is protected.
+Figure \@ref(fig:valuePie) shows the value of ecosystem services currently protected in Timor Leste. While for marine biomes, the protection levels of the area or the value are similar, for land biomes, the protection level for the value is greater than for the area. This indicates that proetcted areas cover biomes that provide more valuable ecosystems services. 
 
-```{r, protectBar, fig.cap="Biomes coverage and protection - absolute values"}
-# Biome protection : area absolute
-area_total <- sum(biomesCover$area_sqkm, na.rm=TRUE)
-ggplot(data = summaryBiomesCover, 
-       aes(x = BIOME, 
-           y = area_sqkm, 
-           fill = as.logical(PA_DEF), 
-           label = paste0(signif(area_sqkm/area_total*1e2, digits = 2), " %")
-       )) + 
-  geom_bar(stat="identity") +
-  # geom_label() +
-  geom_label(aes(y = 60000 - PA_DEF*50000, colour = as.logical(PA_DEF) ), fill = "white")+
-  scale_x_discrete(limits = biomesCover %>% group_by(BIOME) %>% summarise(S = sum(area_sqkm, na.rm = TRUE)) %>% arrange(S) %>% dplyr::select(BIOME) %>% unlist()) +
-  scale_y_continuous(name = "Area (sqkm)") +
-  scale_fill_manual(values = col_pa, labels = c('no','yes')) +
-  scale_colour_manual(values = col_pa, labels = c('not protected','protected')) +
-  labs(fill = "Protected", colour = "% of total area") +
-  coord_flip()
-```
-
-
-```{r, protectBarFill, fig.cap="Biomes coverage and protection - relative values"}
-# Biome protection : area proportion
-ggplot(data = biomesCover, aes(x = BIOME, y = area_sqkm, fill = as.logical(PA_DEF))) + 
-  geom_bar(stat="identity", position = "fill") +
-  scale_x_discrete(limits = biomesCover %>% group_by(BIOME) %>% summarise(S = sum(area_sqkm, na.rm = TRUE)) %>% arrange(S) %>% dplyr::select(BIOME) %>% unlist()) +
-  scale_y_continuous(name = "Proportion of area protected") +
-  scale_fill_manual(values = col_pa, labels = c('no','yes')) +
-  labs(fill = "Protected") +
-  coord_flip()
-```
-
-Although Coastal systems, Coral reefs, Inland wetlands and Mangroves cover very little area, these valuable biomes have a relatively high level of protection, with respectively `r paste(summaryBiomesCover %>% group_by(BIOME) %>% mutate(pc = round(area_sqkm / sum(area_sqkm, na.rm=TRUE)*1e2, digits=1) ) %>% ungroup() %>% filter(PA_DEF == 1 & BIOME %in% c("Inland wetlands", "Coastal systems", "Coral reefs", "Mangroves")) %>% dplyr::select(pc) %>% unlist(), collapse = ", ")`%, especially Mangroves. The fact that these protected areas are already designated is a good basis to enforce effective protection of the valuable ecosystem services supplied by these biomes. 
-
-On the other hand, only `r summaryBiomesCover %>% group_by(BIOME) %>% mutate(pc = round(area_sqkm / sum(area_sqkm, na.rm=TRUE)*1e2, digits=1) ) %>% ungroup() %>% filter(PA_DEF == 1 & BIOME %in% c("Tropical forests")) %>% dplyr::select(pc)`% of the Tropical forests are under some sort of protection. This could be increased to at least 30% to insure the maintainance of the highly valuable ecosystem services they deliver.
-
-We can further look at the value of these ecosystem services in the next section.
-
-# Ecosystem services value
-
-We assigned a monetary value to the mapped biomes, following the global estimates given in Table \@ref(tab:ESval).
-
-Figure \@ref(fig:valuePie) shows the value of ecosystem services currently protected in Timor Leste.
-
-```{r, valuePie, fig.cap="Terrestrial and marine ecosystem services value protected in TimorLeste"}
+```{r, valuePie, fig.cap="Terrestrial and marine ecosystem services value protected in Timor Leste"}
 # Overall ecosystem protection : value
 # pie chart
 
 # split land and sea (Open sea/ocean; coral; seagrass [grep seagrass in layer])
-ggplot(data = summaryCover %>% 
+ggplot(data = summarySuprabiomes %>% 
          mutate(x=2) %>%
          mutate(label = ifelse(PA_DEF, paste0(round(V/sum(V, rm.na=TRUE) *1e2, digits = 1), " %"), "")) %>%
          mutate(ylabel = 0),
@@ -224,35 +213,544 @@ ggplot(data = summaryCover %>%
   scale_fill_manual(values =  col_pa) + 
   coord_polar("y", start=0) + 
   xlim(c(0,2.5)) +
-  labs(fill = "ES value protected", y = "", x="") +
-  theme_void() +
+  labs(fill = "Ecosystem Services value protected", y = "", x="") +
+  theme_void( ) + #base_family = "Fira Sans"
   theme(legend.position = "bottom") +
   facet_grid(cols = vars(suprabiome)) + 
   geom_text(x = .5, aes(y = V/sum(V), label = label))
 
 ```
 
-In fig. \@ref(fig:valueBar), we see the distribution of the biomes' ecosystem services value. Because the value per hectare of Tropical forests is about three times more than that of the Open ocean/sea, the total value of Tropical forests is a=larger in proportion than its coverage.
+## Biomes coverage and value protection
+We can look at the individual biomes to analyse their protection level and see whether the most valuable biomes are better protected.
+
+Figure \@ref(fig:protectBar) shows the coverage of the various biomes in Timor Leste and the proportion of each biome that is protected. Figure \@ref(fig:valueBar) focuses on the value of ecosystem services provided by these biomes.
+
+```{r, protectBar, fig.cap="Biomes coverage and protection - absolute values"}
+# Biome protection : area absolute
+area_total <- sum(biomesCoverValue$area_sqkm, na.rm=TRUE)
+ggplot(data = summaryBiomes, 
+       aes(x = BIOME, 
+           y = area_sqkm, 
+           fill = as.logical(PA_DEF), 
+           label = paste0(signif(area_sqkm/area_total*1e2, digits = 2), " %")
+       )) + 
+  geom_bar(stat="identity") +
+  # geom_label() +
+  geom_label(aes(y = 60000 - PA_DEF*50000, colour = as.logical(PA_DEF) ), fill = "white")+
+  scale_x_discrete(limits = biomesCoverValue %>% group_by(BIOME) %>% summarise(S = sum(area_sqkm, na.rm = TRUE)) %>% arrange(S) %>% dplyr::select(BIOME) %>% unlist()) +
+  scale_y_continuous(name = "Area (sqkm)") +
+  scale_fill_manual(values = col_pa, labels = c('no','yes')) +
+  scale_colour_manual(values = col_pa, labels = c('not protected','protected')) +
+  labs(fill = "Protected", colour = "% of total area") +
+  theme_light() + #base_family = "Fira Sans"
+  coord_flip()
+```
 
 
 ```{r, valueBar, fig.cap="Ecosystem services value in Timor Leste"}
 # Biome protection : value absolute
-value_total <- sum(biomesCover$value, na.rm=TRUE)
-ggplot(data = summaryBiomesCover, 
+value_total <- biomesCoverValue %>% ungroup() %>% dplyr::select(`Value (2020 USD)`) %>% sum(na.rm=TRUE)
+ggplot(data = summaryBiomes, 
        aes(x = BIOME, 
-           y = value, 
+           y = `Value (2020 USD)`, 
            fill = as.logical(PA_DEF), 
-           label = paste0(signif(value/value_total*1e2, digits = 2), " %")
+           label = paste0(signif(`Value (2020 USD)`/value_total*1e2, digits = 2), " %")
        )) + 
   geom_bar(stat="identity") +
   geom_label(aes(y = 2e11 - PA_DEF*1.5e11, colour = as.logical(PA_DEF) ), fill = "white")+
-  scale_x_discrete(limits = biomesCover %>% group_by(BIOME) %>% summarise(V = sum(value, na.rm = TRUE)) %>% arrange(V) %>% dplyr::select(BIOME) %>% unlist()) +
+  scale_x_discrete(limits = biomesCoverValue %>% group_by(BIOME) %>% summarise(V = sum(`Value (2020 USD)`, na.rm = TRUE)) %>% arrange(V) %>% dplyr::select(BIOME) %>% unlist()) +
   scale_y_continuous(name = "Ecosystem services value (2020 USD)") +
   scale_fill_manual(values = col_pa, labels = c('no','yes')) +
   scale_colour_manual(values = col_pa, labels = c('not protected','protected')) +
   labs(fill = "Protected", colour = "% of total value") +
+  theme_light() + #base_family = "Fira Sans"
   coord_flip()
 ```
 
+Because the value per hectare of Tropical forests is about three times greater than that of the Open ocean/sea, the total value of Tropical forests is larger in proportion than its coverage.
+
+Some biomes are much more represented than others. Open sea/ocean cover `r summaryBiomes %>% ungroup() %>% mutate(prop = area_sqkm / sum(area_sqkm, na.rm=TRUE))  %>% group_by(BIOME) %>% summarise(pc = round( sum(prop, na.rm = TRUE) * 1e2, digits = 1))  %>% filter(BIOME %in% c("Open sea/ocean")) %>% dplyr::select(pc)`% of Timor Leste's territory. Tropical forests cover `r summaryBiomes %>% ungroup() %>% mutate(prop = area_sqkm / sum(area_sqkm, na.rm=TRUE))  %>% group_by(BIOME) %>% summarise(pc = round( sum(prop, na.rm = TRUE) * 1e2, digits = 1))  %>% filter(BIOME %in% c("Tropical forests")) %>% dplyr::select(pc)`%, i.e. `r summaryBiomes %>% ungroup() %>% filter(!BIOME %in% c("Open sea/ocean")) %>% mutate(prop = area_sqkm / sum(area_sqkm, na.rm=TRUE))  %>% group_by(BIOME) %>% summarise(pc = round( sum(prop, na.rm = TRUE) * 1e2, digits = 1))  %>% filter(BIOME %in% c("Tropical forests")) %>% dplyr::select(pc)`% of the remaining territory.
+However, some biomes, even if little represented have a high value. Figure \@ref(fig:protectBarFill) shows the level of proptection of each individual biome.
+
+```{r, protectBarFill, fig.cap="Biomes coverage and protection - relative values"}
+# Biome protection : area proportion
+ggplot(data = biomesCoverValue, aes(x = BIOME, y = area_sqkm, fill = as.logical(PA_DEF))) + 
+  geom_bar(stat="identity", position = "fill") +
+  scale_x_discrete(limits = biomesCoverValue %>% group_by(BIOME) %>% summarise(S = sum(area_sqkm, na.rm = TRUE)) %>% arrange(S) %>% dplyr::select(BIOME) %>% unlist()) +
+  scale_y_continuous(name = "Proportion of area or value protected") +
+  scale_fill_manual(values = col_pa, labels = c('no','yes')) +
+  labs(fill = "Protected") +
+  theme_light() + #base_family = "Fira Sans"
+  coord_flip()
+```
+
+Although Coastal systems, Coral reefs, Inland wetlands and Mangroves cover very little area, these valuable biomes have a relatively high level of protection, with respectively `r paste(summaryBiomes %>% group_by(BIOME) %>% mutate(pc = round(area_sqkm / sum(area_sqkm, na.rm=TRUE)*1e2, digits=1) ) %>% ungroup() %>% filter(PA_DEF == 1 & BIOME %in% c("Inland wetlands", "Coastal systems", "Coral reefs", "Mangroves")) %>% dplyr::select(pc) %>% unlist(), collapse = ", ")`%, especially Mangroves. The fact that these protected areas are already designated is a good basis to enforce effective protection of the valuable ecosystem services supplied by these biomes. 
+
+On the other hand, only `r summaryBiomes %>% group_by(BIOME) %>% mutate(pc = round(area_sqkm / sum(area_sqkm, na.rm=TRUE)*1e2, digits=1) ) %>% ungroup() %>% filter(PA_DEF == 1 & BIOME %in% c("Tropical forests")) %>% dplyr::select(pc)`% of the Tropical forests are under some sort of protection. This could be increased to at least 30% to insure the maintainance of the highly valuable ecosystem services they deliver.
+
 # Ecosystem services value maps
+```{r, ESmain}
+# grouping services
+ESmain <- esvd %>%
+  # replace NA by 0
+  tidyr::replace_na(as.list(rep(0, length(esvd))) %>% set_names(names(esvd))) %>%
+  # Provisioning services
+  mutate(Provisioning = Food + Water + `Raw materials` + `Genetic resources` + `Medicinal resources` + `Ornamental resources`) %>%
+  # Regulating services
+  mutate(Regulating = `Air quality regulation` + `Climate regulation` + `Moderation of extreme events` + `Regulation of water flows` + `Waste treatment` + `Erosion prevention` + `Maintenance of soil fertility` + `Pollination` + `Biological control` + `Maintenance of life cycles of migratory species` +	`Maintenance of genetic diversity` ) %>%
+  # Cultural services
+  mutate(Cultural = `Aesthetic information` +	`Opportunities for recreation and tourism` +	`Inspiration for culture, art and design` +	`Spiritual experience` +	`Information for cognitive development` +	`Existence and bequest values`) %>%
+  # select
+  dplyr::select(Biome, Provisioning, Regulating, Cultural, `Value (2020 USD/ha)`) %>%
+  rename(Total = `Value (2020 USD/ha)`)
+
+# export to csv (to be joined with spatial layer)
+write.table(format(as.data.frame(ESmain), digits=1, nsmall=1), file = "../output/global_mainESvalue.csv", sep = ",", row.names=FALSE)
+
+```
+We grouped ecosystem services by type and mapped the spatial distribution of their value, according the global ESVD (Table \@ref(tbl:ESvaldet)). The maps at figure \@ref(fig:esvMap) show the spatial distribution of the value of all ecosystem services and that of the different types of services regrouped as providing, regulating and cultural services. The current network of protected areas is also shown. Provisiong and cultural services are essentially provided by tropical forests while Open sea/ocean, rivers and wetlands provide mostly regulating services. The coastal biomes cover too little area to be visible at the scale of the maps.
+```{r, esvMap, fig.cap="ecosystem services value in Timor Leste", results='asis'}
+knitr::include_graphics("../fig/map_es_val.png")
+```
+Figure \@ref(fig:ESprc) shows the value of ecosystem services by type of services and their protection level for marine and terrestrial habitats.
+
+```{r, ESprc, fig.cap="Value of main ecosystem services types and protection level in Timor Leste"}
+
+summaryESvalue <- biomesCoverValue  %>%
+  group_by(PA_DEF, suprabiome) %>%
+  summarise(
+    across(
+      Food : Cultural, 
+      function(x){sum(x * 1e-9, na.rm = TRUE)}
+      )
+    ) %>%
+  # wide to long
+  tidyr::pivot_longer(
+    cols = Food : Cultural,
+    names_to = "Ecosystem Services",
+    values_to = "Value (2020 billion USD)"
+    )
+
+         
+p <- ggplot(
+  data = summaryESvalue %>% dplyr::filter(`Ecosystem Services` %in% c("Provisioning" ,"Regulating", "Cultural")), 
+  aes(x = `Ecosystem Services`, y = `Value (2020 billion USD)`, fill = as.logical(PA_DEF) ))+
+  facet_grid(cols = vars(suprabiome)) +
+  geom_col() +
+  scale_fill_manual(values = col_pa, labels = c('no','yes')) +
+  theme_light() + #base_family = "Fira Sans"
+  labs(fill = "Protected")
+
+p
+```
+
+We can further look at the value of the individual services in Timor Leste, according to the global ESVD. Figure \@ref(fig:ESall)
+
+```{r, ESall, fig.cap="Value of ecosystem services and protection level in Timor Leste"}
+
+p <- ggplot(
+  data = summaryESvalue %>% dplyr::filter(! `Ecosystem Services` %in% c("Value (2020 USD)", "Provisioning" ,"Regulating", "Cultural")), aes(x = `Ecosystem Services`, y = `Value (2020 billion USD)`, fill = as.logical(PA_DEF))) +
+  geom_col() +
+  facet_grid(cols = vars(suprabiome)) +
+  scale_fill_manual(values = col_pa, labels = c('no','yes')) +
+  #scale_y_continuous(limits = c(0,50)) +
+  scale_x_discrete(
+    limits = biomesCoverValue %>% dplyr::select(Food : `Existence and bequest values`) %>% names %>% rev()
+    ) +
+  labs(fill = "Protected") +
+  theme_light() + #base_family = "Fira Sans"
+  coord_flip()
+  
+
+p
+```
+
+```{r, heatmap, fig.cap = "Heatmap of ecosystem services value by biomes and ecosystem services", fig.asp = .9 }
+# present ESVD values x biomes area as a heatmap 
+biomesCoverValue %>%
+  group_by(BIOME) %>%
+  summarise(
+    across(
+      Food : `Existence and bequest values`, 
+      function(x){sum(x * 1e-9, na.rm = TRUE)}
+      )
+    ) %>%
+  # replce 0 by NA
+  mutate(across(Food : `Existence and bequest values`, ~na_if(.x, 0))) %>%
+  # replace values > 50 by 50
+  mutate(across(Food : `Existence and bequest values`, function(x){if_else(x > 50, 50, x)} )) %>%
+  # long format
+  pivot_longer(cols = Food : `Existence and bequest values`, names_to = "Ecosystem Services", values_to = "Value") %>%
+  # Viz
+  ggplot(aes(x = `Ecosystem Services`, y = BIOME, fill= Value, colour ="")) + 
+    geom_tile() +
+    scale_y_discrete(
+      #guide = guide_axis(angle = 90),
+      limits = biomesCoverValue %>% group_by(BIOME) %>% summarise(S = sum(area_sqkm, na.rm = TRUE)) %>% arrange(S) %>% dplyr::select(BIOME) %>% unlist()
+      ) +
+    scale_x_discrete(
+      guide = guide_axis(angle = 90), 
+      limits = biomesCoverValue %>% dplyr::select(Food : `Existence and bequest values`) %>% names
+      ) +
+    scale_fill_viridis_c(
+      option = "A", 
+      direction = -1,
+      values = scales::rescale(c(0, 1, 5, 10, 20, 50)),
+      limits = c(0,50),
+      breaks = c(0, 1, 5, 10, 20, 50),
+      labels = c("[0, 1[", "[1, 5[", "[5, 10[", "[10, 50[", "[20, 50[", ">=50"),
+      na.value="white"
+      ) +
+    scale_colour_manual(values=NA) +              
+    guides(
+      colour = guide_legend("No data", override.aes=list(colour = "black", fill = "white")),
+      fill = guide_legend("Value (2020 billion USD)")
+      )  +
+    theme_light()+ #base_family = "Fira Sans"
+    coord_fixed(ratio = 1)
+  
+```
+
+# Regional values of ecosystem services
+We refined the values from the ESVD by giving more weight to studies from Timor Leste or from countries in the region. The ESVD holds only two studies from Timor Leste and they do not cover all ecosystem services. We hence created four groups with studies from M. South East Asia and the South West Pacific (MSEA_SWP), from the same climatic zone, from a combination of those and from Timor Leste. For each group, we calculated the Winsorized mean of the ES values to remove outliers. We then applied the following weighting factors to each group: 1 for the global data, 2 for the climatic zone or regional data, 3 for the combination of climatic of the former two and 4 for Timor Leste. The final value reported is average of the values weighted by those factors.
+
+Figure \@ref(fig:weight) shows the weight associated with each combination of biome and ecosystem service. The combinations for which no data are available are sown in white.
+```{r, weight, fig.cap = "Heatmap of weights associated with ecosystem services value by biomes and ecosystem services in the regionalised database"}
+esvd_all <- read_csv("../../data/ESVD_subsets_ES_B_values.csv")
+# select all data with Winsorized mean
+esvd_Win <- esvd_all %>%
+  #select columns related to region
+  dplyr::select(contains("Ecosystem services") | (contains("V_Winsorized") & !contains("by_ES"))) %>%
+  # transpose
+  # set first column as row names
+  column_to_rownames(var = "Ecosystem services / biommes") %>%
+  # t
+  t() %>%
+  # revert to tibble 
+  as.data.frame() %>%
+  rownames_to_column(var = "Biome_zone") %>%
+  # split Biome_zone into Biome and zone
+  separate(1, into = c("Biome", NA, NA, "zone"), sep = "_", 
+           remove = TRUE, convert = FALSE,
+           extra = "merge", fill = "warn") %>%
+  # fill NA with 'global'
+  replace_na(list(zone='global')) %>%
+  # long table
+  pivot_longer(cols = Food : `Existence and bequest values`,
+               names_to = "ES") %>%
+  # wide table
+  pivot_wider(names_from = zone)
+
+# weighted average of ES values  
+esvd_weighted <- esvd_Win %>%
+  mutate(numerateur = 
+           (if_else(!is.na(global),1 * global,0) + 
+              if_else(!is.na(climatic_zone),2 * climatic_zone, 0) +
+              if_else(!is.na(MSEA_SWP),2 * MSEA_SWP, 0) +
+              if_else(!is.na(climatic_zone_and_MESA_SWP), 3 *climatic_zone_and_MESA_SWP, 0)+
+              if_else(!is.na(TL), 4 * TL, 0)
+            ),
+         denominateur = 
+           if_else(!is.na(global),1,0) + 
+              if_else(!is.na(climatic_zone),2, 0) +
+              if_else(!is.na(MSEA_SWP),2 , 0) +
+              if_else(!is.na(climatic_zone_and_MESA_SWP), 3, 0)+
+              if_else(!is.na(TL), 4, 0),
+         value = numerateur/denominateur)
+  
+esvdReg <- esvd_weighted %>%
+  select(Biome, ES, value) %>%
+  pivot_wider(names_from=ES, values_from=value)  %>%
+  mutate(`Value (2020 USD/ha)` = rowSums(across(Food : `Existence and bequest values`), na.rm = TRUE))
+
+# Viz
+esvd_weighted %>%
+  # replace 0 by na
+  mutate(weight = if_else(denominateur == 0, NA_integer_, as.integer(denominateur))) %>%
+  ggplot(aes(x = ES, y = Biome, fill= weight, colour ="")) + 
+    geom_tile() +
+    # scale_y_discrete(
+    #   #guide = guide_axis(angle = 90),
+    #   limits = biomesCoverValue %>% group_by(BIOME) %>% summarise(S = sum(area_sqkm, na.rm = TRUE)) %>% arrange(S) %>% dplyr::select(BIOME) %>% unlist()
+    #   ) +
+    scale_x_discrete(
+      guide = guide_axis(angle = 90), 
+      # limits = biomesCoverValue %>% dplyr::select(Food : `Existence and bequest values`) %>% names
+      ) +
+    scale_fill_viridis_c(
+      option = "viridis",
+      direction = -1,
+      na.value="white"
+      ) +
+    scale_colour_manual(values=NA) +
+    guides(
+      colour = guide_legend("No data", override.aes=list(colour = "black", fill = "white"), order = 2),
+      fill = guide_legend("Weight", order = 1)
+      )  +
+    theme_light()+ #base_family = "Fira Sans"
+    coord_fixed(ratio = 1)
+
+```
+
+```{r biomesCoverReg}
+biomesCoverValueReg <- biomesCoverValue %>%
+  # remove global ES value
+  select(-(Food : Cultural)) %>%
+  # add ES value/ha
+  left_join(esvdReg , by = c("BIOME" = "Biome")) %>%
+  # compute value by multiplying by ha
+  mutate(across(Food : `Value (2020 USD/ha)`, ~.x * area_sqkm *1e2)) %>%
+  rename(`Value (2020 USD)` = `Value (2020 USD/ha)`) %>%
+  # group ES into main types 
+  # prepare for rowwise computations
+  ungroup() %>%
+  rowwise() %>%
+  # replace NA by 0
+  tidyr::replace_na(as.list(rep(0, length(esvd))) %>% set_names(names(esvd))) %>%
+  # Provisioning services
+  mutate(Provisioning = sum(c_across(Food : `Ornamental resources`))) %>%
+  # Regulating services
+  mutate(Regulating = sum(c_across(`Air quality regulation` : `Maintenance of genetic diversity`) ) ) %>%
+  # Cultural services
+  mutate(Cultural = sum(c_across(`Aesthetic information` :	`Existence and bequest values`))) %>% 
+  ungroup()
+
+## summarise by suprabiome and PA_DEF
+summarySuprabiomesReg <- biomesCoverValueReg %>% 
+         group_by(suprabiome, PA_DEF) %>%
+         summarise (
+           S = sum(area_sqkm, na.rm = TRUE), 
+           V = sum(`Value (2020 USD)`, na.rm = TRUE)
+           ) %>%
+         mutate(label = 
+                  ifelse(
+                    PA_DEF, 
+                    paste0(round(S/sum(S) *1e2, digits = 1), " %"), 
+                    "") 
+                )
+## summarise by biome and PA_DEF
+summaryBiomesReg <- biomesCoverValueReg %>% 
+         group_by(PA_DEF, BIOME) %>%
+         summarise(
+           area_sqkm = sum(area_sqkm, na.rm = TRUE),
+           across(Food : `Value (2020 USD)`, sum, na.rm = TRUE)
+           )
+
+```
+
+## Overall
+
+Figure \@ref(fig:valuePieReg) shows the value of ecosystem services currently protected in Timor Leste. While for marine biomes, the protection levels of the area or the value are similar, for land biomes, the protection level for the value is greater than for the area. This indicates that proetcted areas cover biomes that provide more valuable ecosystems services. 
+
+```{r, valuePieReg, fig.cap="Terrestrial and marine ecosystem services regionalized value protected in Timor Leste"}
+# Overall ecosystem protection : value
+# pie chart
+
+# split land and sea (Open sea/ocean; coral; seagrass [grep seagrass in layer])
+ggplot(data = summarySuprabiomesReg %>% 
+         mutate(x=2) %>%
+         mutate(label = ifelse(PA_DEF, paste0(round(V/sum(V, rm.na=TRUE) *1e2, digits = 1), " %"), "")) %>%
+         mutate(ylabel = 0),
+       aes(x=x, y=V, fill=as.logical(PA_DEF))) +
+  geom_bar(stat="identity", width=1, position = "fill") +
+  scale_fill_manual(values =  col_pa) + 
+  coord_polar("y", start=0) + 
+  xlim(c(0,2.5)) +
+  labs(fill = "Ecosystem Services value protected", y = "", x="") +
+  theme_void( ) + #base_family = "Fira Sans"
+  theme(legend.position = "bottom") +
+  facet_grid(cols = vars(suprabiome)) + 
+  geom_text(x = .5, aes(y = V/sum(V), label = label))
+
+```
+
+## Biomes coverage and value protection
+We can look at the individual biomes to analyse their protection level and see whether the most valuable biomes are better protected.
+
+Figure \@ref(fig:valueBarReg) focuses on the value of ecosystem services provided by these biomes.
+
+
+```{r, valueBarReg, fig.cap="Ecosystem services regional value in Timor Leste"}
+# Biome protection : value absolute
+value_totalReg <- biomesCoverValueReg %>% ungroup() %>% dplyr::select(`Value (2020 USD)`) %>% sum(na.rm=TRUE)
+ggplot(data = summaryBiomesReg, 
+       aes(x = BIOME, 
+           y = `Value (2020 USD)`, 
+           fill = as.logical(PA_DEF), 
+           label = paste0(signif(`Value (2020 USD)`/value_totalReg*1e2, digits = 2), " %")
+       )) + 
+  geom_bar(stat="identity") +
+  geom_label(aes(y = 2e11 - PA_DEF*1.5e11, colour = as.logical(PA_DEF) ), fill = "white")+
+  scale_x_discrete(limits = biomesCoverValueReg %>% group_by(BIOME) %>% summarise(V = sum(`Value (2020 USD)`, na.rm = TRUE)) %>% arrange(V) %>% dplyr::select(BIOME) %>% unlist()) +
+  scale_y_continuous(name = "Ecosystem services value (2020 USD)") +
+  scale_fill_manual(values = col_pa, labels = c('no','yes')) +
+  scale_colour_manual(values = col_pa, labels = c('not protected','protected')) +
+  labs(fill = "Protected", colour = "% of total value") +
+  theme_light() + #base_family = "Fira Sans"
+  coord_flip()
+```
+
+Because the value per hectare of Tropical forests is about three times greater than that of the Open ocean/sea, the total value of Tropical forests is larger in proportion than its coverage.
+
+Some biomes are much more represented than others. Open sea/ocean cover `r summaryBiomesReg %>% ungroup() %>% mutate(prop = area_sqkm / sum(area_sqkm, na.rm=TRUE))  %>% group_by(BIOME) %>% summarise(pc = round( sum(prop, na.rm = TRUE) * 1e2, digits = 1))  %>% filter(BIOME %in% c("Open sea/ocean")) %>% dplyr::select(pc)`% of Timor Leste's territory. Tropical forests cover `r summaryBiomesReg %>% ungroup() %>% mutate(prop = area_sqkm / sum(area_sqkm, na.rm=TRUE))  %>% group_by(BIOME) %>% summarise(pc = round( sum(prop, na.rm = TRUE) * 1e2, digits = 1))  %>% filter(BIOME %in% c("Tropical forests")) %>% dplyr::select(pc)`%, i.e. `r summaryBiomesReg %>% ungroup() %>% filter(!BIOME %in% c("Open sea/ocean")) %>% mutate(prop = area_sqkm / sum(area_sqkm, na.rm=TRUE))  %>% group_by(BIOME) %>% summarise(pc = round( sum(prop, na.rm = TRUE) * 1e2, digits = 1))  %>% filter(BIOME %in% c("Tropical forests")) %>% dplyr::select(pc)`% of the remaining territory.
+However, some biomes, even if little represented have a high value. Figure \@ref(fig:protectBarFill) shows the level of proptection of each individual biome.
+
+```{r, protectBarFillReg, fig.cap="Biomes coverage and protection - relative values"}
+# Biome protection : area proportion
+ggplot(data = biomesCoverValueReg, aes(x = BIOME, y = area_sqkm, fill = as.logical(PA_DEF))) + 
+  geom_bar(stat="identity", position = "fill") +
+  scale_x_discrete(limits = biomesCoverValue %>% group_by(BIOME) %>% summarise(S = sum(area_sqkm, na.rm = TRUE)) %>% arrange(S) %>% dplyr::select(BIOME) %>% unlist()) +
+  scale_y_continuous(name = "Proportion of area or value protected") +
+  scale_fill_manual(values = col_pa, labels = c('no','yes')) +
+  labs(fill = "Protected") +
+  theme_light() + #base_family = "Fira Sans"
+  coord_flip()
+```
+
+Although Coastal systems, Coral reefs, Inland wetlands and Mangroves cover very little area, these valuable biomes have a relatively high level of protection, with respectively `r paste(summaryBiomesReg %>% group_by(BIOME) %>% mutate(pc = round(area_sqkm / sum(area_sqkm, na.rm=TRUE)*1e2, digits=1) ) %>% ungroup() %>% filter(PA_DEF == 1 & BIOME %in% c("Inland wetlands", "Coastal systems", "Coral reefs", "Mangroves")) %>% dplyr::select(pc) %>% unlist(), collapse = ", ")`%, especially Mangroves. The fact that these protected areas are already designated is a good basis to enforce effective protection of the valuable ecosystem services supplied by these biomes. 
+
+On the other hand, only `r summaryBiomesReg %>% group_by(BIOME) %>% mutate(pc = round(area_sqkm / sum(area_sqkm, na.rm=TRUE)*1e2, digits=1) ) %>% ungroup() %>% filter(PA_DEF == 1 & BIOME %in% c("Tropical forests")) %>% dplyr::select(pc)`% of the Tropical forests are under some sort of protection. This could be increased to at least 30% to insure the maintainance of the highly valuable ecosystem services they deliver.
+
+# Ecosystem services value maps
+```{r, ESmainReg}
+# grouping services
+ESmainReg <- esvdReg %>%
+  # replace NA by 0
+  tidyr::replace_na(as.list(rep(0, length(esvdReg))) %>% set_names(names(esvdReg))) %>%
+  # Provisioning services
+  mutate(Provisioning = Food + Water + `Raw materials` + `Genetic resources` + `Medicinal resources` + `Ornamental resources`) %>%
+  # Regulating services
+  mutate(Regulating = `Air quality regulation` + `Climate regulation` + `Moderation of extreme events` + `Regulation of water flows` + `Waste treatment` + `Erosion prevention` + `Maintenance of soil fertility` + `Pollination` + `Biological control` + `Maintenance of life cycles of migratory species` +	`Maintenance of genetic diversity` ) %>%
+  # Cultural services
+  mutate(Cultural = `Aesthetic information` +	`Opportunities for recreation and tourism` +	`Inspiration for culture, art and design` +	`Spiritual experience` +	`Information for cognitive development` +	`Existence and bequest values`) %>%
+  # select
+  dplyr::select(Biome, Provisioning, Regulating, Cultural, `Value (2020 USD/ha)`) %>%
+  rename(Total = `Value (2020 USD/ha)`)
+
+# export to csv (to be joined with spatial layer)
+write.table(format(as.data.frame(ESmainReg), digits=1, nsmall=1), file = "../output/regional_mainESvalue.csv", sep = ",", row.names=FALSE)
+
+```
+We grouped ecosystem services by type and mapped the spatial distribution of their value, according the regional ESVD (Table \@ref(tbl:ESvaldetReg)). The maps at figure \@ref(fig:esvMapReg) show the spatial distribution of the value of all ecosystem services and that of the different types of services regrouped as providing, regulating and cultural services. The current network of protected areas is also shown. Provisiong and cultural services are essentially provided by tropical forests while Open sea/ocean, rivers and wetlands provide mostly regulating services. The coastal biomes cover too little area to be visible at the scale of the maps.
+```{r, esvMapReg, fig.cap="Ecosystem services regional value in Timor Leste", results='asis'}
+knitr::include_graphics("../fig/map_es_val_reg.png")
+```
+Figure \@ref(fig:ESprcReg) shows the value of ecosystem services by type of services and their protection level for marine and terrestrial habitats.
+
+```{r, ESprcReg, fig.cap="Regional value of main ecosystem services types and protection level in Timor Leste"}
+
+summaryESvalueReg <- biomesCoverValueReg  %>%
+  group_by(PA_DEF, suprabiome) %>%
+  summarise(
+    across(
+      Food : Cultural, 
+      function(x){sum(x * 1e-9, na.rm = TRUE)}
+      )
+    ) %>%
+  # wide to long
+  tidyr::pivot_longer(
+    cols = Food : Cultural,
+    names_to = "Ecosystem Services",
+    values_to = "Value (2020 billion USD)"
+    )
+
+         
+p <- ggplot(
+  data = summaryESvalueReg %>% dplyr::filter(`Ecosystem Services` %in% c("Provisioning" ,"Regulating", "Cultural")), 
+  aes(x = `Ecosystem Services`, y = `Value (2020 billion USD)`, fill = as.logical(PA_DEF) ))+
+  facet_grid(cols = vars(suprabiome)) +
+  geom_col() +
+  scale_fill_manual(values = col_pa, labels = c('no','yes')) +
+  theme_light() + #base_family = "Fira Sans"
+  labs(fill = "Protected")
+
+p
+```
+
+We can further look at the value of the individual services in Timor Leste, according to the regionalized ESVD. Figure \@ref(fig:ESallReg)
+
+```{r, ESallReg, fig.cap="Regional value of ecosystem services in Timor Leste"}
+
+p <- ggplot(
+  data = summaryESvalueReg %>% dplyr::filter(! `Ecosystem Services` %in% c("Value (2020 USD)", "Provisioning" ,"Regulating", "Cultural")), aes(x = `Ecosystem Services`, y = `Value (2020 billion USD)`, fill = as.logical(PA_DEF))) +
+  geom_col() +
+  facet_grid(cols = vars(suprabiome)) +
+  scale_fill_manual(values = col_pa, labels = c('no','yes')) +
+  #scale_y_continuous(limits = c(0,50)) +
+  scale_x_discrete(
+    limits = biomesCoverValueReg %>% dplyr::select(Food : `Existence and bequest values`) %>% names %>% rev()
+    ) +
+  labs(fill = "Protected") +
+  theme_light() + #base_family = "Fira Sans"
+  coord_flip()
+  
+
+p
+```
+
+```{r, heatmapReg, fig.cap = "Heatmap of ecosystem services regional value by biomes and ecosystem services", fig.asp = .9 }
+# present ESVD values x biomes area as a heatmap 
+biomesCoverValueReg %>%
+  group_by(BIOME) %>%
+  summarise(
+    across(
+      Food : `Existence and bequest values`, 
+      function(x){sum(x * 1e-9, na.rm = TRUE)}
+      )
+    ) %>%
+  # replce 0 by NA
+  mutate(across(Food : `Existence and bequest values`, ~na_if(.x, 0))) %>%
+  # replace values > 50 by 50
+  mutate(across(Food : `Existence and bequest values`, function(x){if_else(x > 50, 50, x)} )) %>%
+  # long format
+  pivot_longer(cols = Food : `Existence and bequest values`, names_to = "Ecosystem Services", values_to = "Value") %>%
+  # Viz
+  ggplot(aes(x = `Ecosystem Services`, y = BIOME, fill= Value, colour ="")) + 
+    geom_tile() +
+    scale_y_discrete(
+      #guide = guide_axis(angle = 90),
+      limits = biomesCoverValue %>% group_by(BIOME) %>% summarise(S = sum(area_sqkm, na.rm = TRUE)) %>% arrange(S) %>% dplyr::select(BIOME) %>% unlist()
+      ) +
+    scale_x_discrete(
+      guide = guide_axis(angle = 90), 
+      limits = biomesCoverValue %>% dplyr::select(Food : `Existence and bequest values`) %>% names
+      ) +
+    scale_fill_viridis_c(
+      option = "A", 
+      direction = -1,
+      values = scales::rescale(c(0, 1, 5, 10, 20, 50)),
+      limits = c(0,50),
+      breaks = c(0, 1, 5, 10, 20, 50),
+      labels = c("[0, 1[", "[1, 5[", "[5, 10[", "[10, 50[", "[20, 50[", ">=50"),
+      na.value="white"
+      ) +
+    scale_colour_manual(values=NA) +              
+    guides(
+      colour = guide_legend("No data", override.aes=list(colour = "black", fill = "white")),
+      fill = guide_legend("Value (2020 billion USD)")
+      )  +
+    theme_light()+ #base_family = "Fira Sans"
+    coord_fixed(ratio = 1)
+  
+```
+
+
+# Stakeholder consultations
+
+# Appendice
+
+## ESVD
+```{r, ESvaldet, results='asis'}
+options(knitr.kable.NA = '')
+knitr::kable(esvd, caption="Global values of ecosystem services from the Ecoystem Services Valuation Database (ESVD)")
+```
+
+
+## Regionalized ESVD
+```{r, ESvaldetReg, results='asis'}
+options(knitr.kable.NA = '')
+knitr::kable(esvdReg, caption="Regionalized values of ecosystem services from the Ecoystem Services Valuation Database (ESVD)", digits = 0)
+```
+
 
