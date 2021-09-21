@@ -213,7 +213,7 @@ itemLegend.setLineSpacing(0.5)
 itemLegend.setColumnCount(4)
 itemLegend.setWmsLegendHeight(8)
 layout.addLayoutItem(itemLegend)
-itemLegend.attemptResize(QgsLayoutSize(120, 64, QgsUnitTypes.LayoutMillimeters))
+itemLegend.attemptResize(QgsLayoutSize(155, 64, QgsUnitTypes.LayoutMillimeters))
 itemLegend.attemptMove(QgsLayoutPoint(5,141,QgsUnitTypes.LayoutMillimeters))
 itemLegend.updateLegend()
 
@@ -390,5 +390,5 @@ itemLogo.attemptMove(QgsLayoutPoint(132,200,QgsUnitTypes.LayoutMillimeters))
 # print to png
 export = QgsLayoutExporter(layout)
 expSett = QgsLayoutExporter.ImageExportSettings()
-expSett.dpi = 150
+expSett.dpi = 300
 export.exportToImage("./fig/"  + layout.name() + ".png", expSett)
